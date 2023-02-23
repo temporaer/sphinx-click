@@ -17,6 +17,7 @@ from docutils import statemachine
 from sphinx import application
 from sphinx.util import logging
 from sphinx.util import nodes as sphinx_nodes
+from sphinx.util.docutils import SphinxDirective
 
 LOG = logging.getLogger(__name__)
 
@@ -161,6 +162,8 @@ def _format_option(
     # For click.option('--flag', '-f', ...) it'll create anchors for "flag" and "f"
     option_names = list(set([option_name.lstrip('-') for option_name in opt.opts]))
     for option_name in option_names:
+        if re.match(r'[A-Z]$', option_name):
+            option_name = "upper" + option_name
         yield '.. _{command_name}-{param}:'.format(
             command_name=_format_command_name(ctx), param=option_name
         )
@@ -327,10 +330,6 @@ def _format_header(ctx: click.Context) -> ty.Generator[str, None, None]:
     for line in _format_description(ctx):
         yield line
 
-    yield '.. _{command_name}:'.format(
-        command_name=_format_command_name(ctx),
-    )
-    yield ''
     yield '.. program:: {}'.format(ctx.command_path)
 
 
@@ -524,6 +523,13 @@ class ClickDirective(rst.Directive):
         """
         ctx = click.Context(command, info_name=name, parent=parent)
 
+        init_lines = [
+            '.. _{command_name}:'.format(
+                command_name=_format_command_name(ctx),
+            ),
+            ''
+        ]
+
         if command.hidden:
             return []
 
@@ -545,6 +551,7 @@ class ClickDirective(rst.Directive):
                 lines, _format_command(ctx, nested, commands, hide_current_header)
             )
 
+        lines = list(lines)
         for line in lines:
             LOG.debug(line)
             result.append(line, source_name)
@@ -590,12 +597,18 @@ class ClickDirective(rst.Directive):
 
         else:
             # Title
+            ids=[nodes.make_id(ctx.command_path)]
+            section = nodes.section(ids=ids)
+            section += nodes.title(ctx.command_path, ctx.command_path)
 
-            section = nodes.section(
-                '',
-                nodes.title(text=name),
-                ids=[nodes.make_id(ctx.command_path)],
-                names=[nodes.fully_normalize_name(ctx.command_path)],
+            self.env.get_domain('std').labels[ids[0]] = (
+                self.env.docname,
+                ids[0],
+                ctx.command_path,
+            )
+            self.env.get_domain('std').anonlabels[ids[0]] = (
+                self.env.docname,
+                ids[0],
             )
 
             sphinx_nodes.nested_parse_with_titles(self.state, result, section)
@@ -666,6 +679,7 @@ class ClickDirective(rst.Directive):
                 command.strip() for command in self.options.get('commands').split(',')
             ]
 
+        breakpoint()
         return self._generate_nodes(
             prog_name, command, None, nested, commands, False, hide_header
         )
